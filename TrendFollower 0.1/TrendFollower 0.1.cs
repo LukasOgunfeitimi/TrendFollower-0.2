@@ -396,4 +396,69 @@ namespace cAlgo.Robots {
             decimal value = volume * Math.Abs(stopLossInPips) * pipSize;
             return this._smallAssetConverter.Convert(value, quoteAssetName, this._smallEnvironment.Account.Currency, false).Round(this._smallEnvironment.Account.Digits);
         }
+
+using cAlgo.API;
+using cAlgo.API.Indicators;
+using cAlgo.API.Internals;
+using System;
+using System.Collections.Generic;
+namespace cAlgo.Robots {
+    [Indicator(AccessRights = AccessRights.None)]
+    public class SupportResistance: Indicator {
+
+        [Parameter("Historical bars amount", DefaultValue = 15)]
+        public int BarsLookup { get; set; }
+        
+        [Output("Highs")]
+        public DataSeries PreviousHighs {get; set;}
+        
+        [Output("Highs")]
+        public IndicatorDataSeries PreviousLows {get; set;}
+        
+        protected override void Initialize() {
+            PreviousHighs = CreateDataSeries();
+            PreviousLows = CreateDataSeries();
+            
+            AnalyzeHistoricalData();   
+        }
+        
+        public override void Calculate(int a) {return;}
+
+        private void AnalyzeHistoricalData() {
+            for (int i = Bars.Count - 1; i > ((Bars.Count - 1) - 2000); i--) {
+
+                if (GetPivot(Bars.HighPrices, i, BarsLookup, true)) {
+                    PreviousHighs[i] = Bars[i];
+                    DrawLine("Resistance_Historical_" + i, Bars[i], Color.Green);
+                }
+
+                if (GetPivot(Bars.LowPrices, i, BarsLookup, false)) {
+                    PreviousLows.Add(Bars[i]);
+                    DrawLine("Support_Historical_" + i, Bars[i], Color.Red);
+                }
+            }
+        }
+
+        private bool GetPivot(DataSeries series, int index, int barsAmount, bool findHigh) {
+            if (index < barsAmount || index >= series.Count - barsAmount)
+                return false;
+
+            double currentValue = series[index];
+
+            for (int i = 1; i <= barsAmount; i++) {
+                if (
+                    (series[index - i] - currentValue) > 0 == findHigh ||
+                    (series[index + i] - currentValue) > 0 == findHigh
+                ) return false;
+            }
+
+            return true;
+        }
+
+        private void DrawLine(string id, Bar bar, Color color) {
+            double Price = id.Contains("Resistance") ? bar.High : bar.Low;
+            Chart.DrawTrendLine(id, bar.OpenTime, Price, bar.OpenTime.AddMinutes(60), Price, color, 5);
+        }
+    }
+}
 */
