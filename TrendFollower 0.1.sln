@@ -1,0 +1,27 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.10.35122.118
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SupportResistance", "..\..\Indicators\SupportResistance\SupportResistance\SupportResistance.csproj", "{F207630C-C908-47A1-B76C-01EB66173E6B}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TrendFollower 0.1", "TrendFollower 0.1\TrendFollower 0.1.csproj", "{551F74E3-E04B-4AA8-929B-6263FD96420E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F207630C-C908-47A1-B76C-01EB66173E6B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F207630C-C908-47A1-B76C-01EB66173E6B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F207630C-C908-47A1-B76C-01EB66173E6B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F207630C-C908-47A1-B76C-01EB66173E6B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{551F74E3-E04B-4AA8-929B-6263FD96420E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{551F74E3-E04B-4AA8-929B-6263FD96420E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{551F74E3-E04B-4AA8-929B-6263FD96420E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{551F74E3-E04B-4AA8-929B-6263FD96420E}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
