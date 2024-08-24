@@ -40,8 +40,8 @@ namespace cAlgo.Robots {
         [Parameter("Risk per trade (%)", DefaultValue = 0.02, Step = 0.005)]
         public double RiskPerTrade {get; set;}
         
-        [Parameter("SL/TP in Pip Difference", DefaultValue = 50)]
-        public double SLTPInPipDifference {get; set;}
+        [Parameter("SL/TP in Price Difference", DefaultValue = 50)]
+        public double SLTPInPriceDifference {get; set;}
         
         // set to false when backtesting for performance
         [Parameter("Debug", DefaultValue = true)]
@@ -56,12 +56,26 @@ namespace cAlgo.Robots {
         private IndicatorDataSeries ADX {get; set;}
         
         private SupportResistance SR;
-    
-        private List<Bar> Highs;
-        private List<Bar> Lows;
        
         public double SLTPInPips;
         public double SLTPInPipsHalf { get => SLTPInPips / 2; }
+        
+        private struct SLTP {
+            public double SL;
+            public double TP;
+            public string comment;
+        }
+        
+        private struct SRMetrics {
+            public int UptrendCounter = 0;
+            public int DowntrendCounter = 0;
+            public int NeutralCounter = 0;
+            public override string ToString() {
+                return " [" + UptrendCounter +
+                       " - "+ DowntrendCounter +
+                       " - " + NeutralCounter + "]";
+            }
+        }
         
         private MetricTracker MetricTracker;
         public Webhook Webhook;
@@ -74,10 +88,12 @@ namespace cAlgo.Robots {
         public void AllPositions(Action<Position> c) { foreach(var pos in Positions) if (pos.Comment != null && pos.Comment.Contains("algo")) c(pos); }
         
         protected override void OnStart() {
+            //var result = System.Diagnostics.Debugger.Launch();
+
             LastTradeClose = DateTime.MinValue;
             Positions.Closed += OnPositionClosed;
             
-            SLTPInPips = SLTPInPipDifference / Symbol.PipSize;
+            SLTPInPips = SLTPInPriceDifference / Symbol.PipSize;
 
             MetricTracker = new(this);
             Webhook = new(WebhookActivated);
@@ -87,8 +103,7 @@ namespace cAlgo.Robots {
             
             ADX = Indicators.AverageDirectionalMovementIndexRating(ADXPeriod).ADX;
             EMA = Indicators.ExponentialMovingAverage(Bars.ClosePrices, EMAPeriod).Result;
-            SR  = Indicators.GetIndicator<SupportResistance>();
-            
+            SR  = Indicators.GetIndicator<SupportResistance>(15);
             Log("Started"); 
         }
         protected override void OnTick() {
@@ -138,6 +153,63 @@ namespace cAlgo.Robots {
             MetricTracker.LocalPositions.Remove(pos.Id);
              
         }
+        private SLTP CalculateSLTP(TradeType direction) {
+            List<Bar> PreviousHighs = SR.PreviousHighs;
+            List<Bar> PreviousLows = SR.PreviousLows;
+            
+            SLTP sltp = new();
+            
+            SRMetrics highs = new();
+            SRMetrics lows = new();
+            
+            int Lookup = Math.Min(PreviousHighs.Count - 2, PreviousLows.Count - 2);
+            
+            for (int i = 0; i < Math.Min(Lookup, 10); i++) {
+                double diffHighs = (PreviousHighs[i].High - PreviousHighs[i + 1].High) / Symbol.PipSize;
+                if (diffHighs >= 1000) highs.UptrendCounter++;
+                else if (diffHighs <= -1000) highs.DowntrendCounter++;
+                else highs.NeutralCounter++;
+                Log(PreviousLows[i].Low.ToString());
+                Log(PreviousLows[i].Low.ToString());
+                double diffLows = (PreviousLows[i].Low - PreviousLows[i + 1].Low) / Symbol.PipSize;
+                if (diffLows >= 1000) lows.UptrendCounter++;
+                else if (diffLows <= -1000) lows.DowntrendCounter++;
+                else lows.NeutralCounter++;
+            }
+            
+            Log(highs.ToString());
+            Log(lows.ToString());
+            sltp.comment = highs.ToString() + " " + lows.ToString();
+            // Calculate TP
+            // If the latest pivot point is reachable use that
+            // if not use 100 pip
+
+            if (direction == TradeType.Buy) {
+                double diff = (PreviousHighs.First().High - Ask) / Symbol.PipSize;
+                if (diff > 1000) sltp.TP = diff;
+                else sltp.TP = 1000;
+            } else {
+                double diff = (Bid - PreviousLows.First().Low) / Symbol.PipSize;
+                if (diff > 1000) sltp.TP = diff;
+                else sltp.TP = 1000;
+            }
+            
+            // Calculate SL
+            // If the latest pivot point is under 100 pip use that
+            // if not use 100 pip
+            if (direction == TradeType.Buy) {
+                double diff = (Bid - PreviousLows.First().Low) / Symbol.PipSize;
+                if (diff < 1000) sltp.SL = diff;
+                else sltp.SL = 1000;
+            } else {
+                double diff = (PreviousHighs.First().High - Ask) / Symbol.PipSize;
+                if (diff < 1000) sltp.SL = diff;
+                else sltp.SL = 1000;
+            }
+            
+            return sltp;
+            
+        }
         protected override void OnBar() {
             int latestIndex = Bars.Count - 1;
 
@@ -159,24 +231,28 @@ namespace cAlgo.Robots {
                 DailySetupsTaken < SetupsPerDay  &&
                 Positions.Where(pos => pos.Comment.Contains("algo")).Count() == 0 &&
                 (Bars[latestIndex].OpenTime - LastTradeClose).TotalMinutes > 60
-               ) {
+               ) {                
                 string Comment = "algo";
                 
                 DailySetupsTaken++;
                 TradeType direction = diff > 0 ? TradeType.Buy : TradeType.Sell;
                 
+                SR.AnalyzeHistoricalData(1000);
+                
+                SLTP sltp = CalculateSLTP(direction);
+                
                 double RiskAmount = MetricTracker.CanTradeLossAmount / SetupsPerDay;
                 if (MetricTracker.ReducedRiskActive) RiskAmount *= MetricTracker.ReducedRiskMultipler;
                 
-                double Volume = Symbol.VolumeForFixedRisk(RiskAmount, SLTPInPips / 2);
+                double Volume = Symbol.VolumeForFixedRisk(RiskAmount, sltp.SL);
 
                 //double Volume = RiskAmount / (SLTPInPips * Symbol.PipSize);
                 
-                Comment += " ADX: " + Math.Round(ADX[latestIndex], 2) + " " + Math.Abs(Math.Round(diff,2));
-                
+                //Comment += " ADX: " + Math.Round(ADX[latestIndex], 2) + " " + Math.Abs(Math.Round(diff,2));
+                Comment += sltp.comment;
                 while (Volume > 0) {
                     double OrderVolume = Math.Min(Volume, Symbol.VolumeInUnitsMax);
-                    ExecuteMarketOrder(direction, SymbolName, OrderVolume, null, SLTPInPips / 2, SLTPInPips, Comment);
+                    ExecuteMarketOrder(direction, SymbolName, OrderVolume, null, sltp.SL, sltp.TP, Comment);
                     Volume -= OrderVolume;
                 }
                 
@@ -291,7 +367,7 @@ namespace cAlgo.Robots {
                     P.ReachedProfitThreshold = true;
                 } 
                 // if we got into drawdown without seeing profit close early
-                else if (!P.ReachedProfitThreshold && ProfitPips <= -this.bot.SLTPInPipsHalf / 2){
+                else if (!P.ReachedProfitThreshold && ProfitPips <= -this.bot.SLTPInPipsHalf){
                     this.bot.ClosePositionAsync(pos);
                 }
                 
@@ -397,68 +473,4 @@ namespace cAlgo.Robots {
             return this._smallAssetConverter.Convert(value, quoteAssetName, this._smallEnvironment.Account.Currency, false).Round(this._smallEnvironment.Account.Digits);
         }
 
-using cAlgo.API;
-using cAlgo.API.Indicators;
-using cAlgo.API.Internals;
-using System;
-using System.Collections.Generic;
-namespace cAlgo.Robots {
-    [Indicator(AccessRights = AccessRights.None)]
-    public class SupportResistance: Indicator {
-
-        [Parameter("Historical bars amount", DefaultValue = 15)]
-        public int BarsLookup { get; set; }
-        
-        [Output("Highs")]
-        public DataSeries PreviousHighs {get; set;}
-        
-        [Output("Highs")]
-        public IndicatorDataSeries PreviousLows {get; set;}
-        
-        protected override void Initialize() {
-            PreviousHighs = CreateDataSeries();
-            PreviousLows = CreateDataSeries();
-            
-            AnalyzeHistoricalData();   
-        }
-        
-        public override void Calculate(int a) {return;}
-
-        private void AnalyzeHistoricalData() {
-            for (int i = Bars.Count - 1; i > ((Bars.Count - 1) - 2000); i--) {
-
-                if (GetPivot(Bars.HighPrices, i, BarsLookup, true)) {
-                    PreviousHighs[i] = Bars[i];
-                    DrawLine("Resistance_Historical_" + i, Bars[i], Color.Green);
-                }
-
-                if (GetPivot(Bars.LowPrices, i, BarsLookup, false)) {
-                    PreviousLows.Add(Bars[i]);
-                    DrawLine("Support_Historical_" + i, Bars[i], Color.Red);
-                }
-            }
-        }
-
-        private bool GetPivot(DataSeries series, int index, int barsAmount, bool findHigh) {
-            if (index < barsAmount || index >= series.Count - barsAmount)
-                return false;
-
-            double currentValue = series[index];
-
-            for (int i = 1; i <= barsAmount; i++) {
-                if (
-                    (series[index - i] - currentValue) > 0 == findHigh ||
-                    (series[index + i] - currentValue) > 0 == findHigh
-                ) return false;
-            }
-
-            return true;
-        }
-
-        private void DrawLine(string id, Bar bar, Color color) {
-            double Price = id.Contains("Resistance") ? bar.High : bar.Low;
-            Chart.DrawTrendLine(id, bar.OpenTime, Price, bar.OpenTime.AddMinutes(60), Price, color, 5);
-        }
-    }
-}
 */
