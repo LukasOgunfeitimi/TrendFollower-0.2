@@ -60,34 +60,10 @@ namespace cAlgo.Robots {
         public double SLTPInPips;
         public double SLTPInPipsHalf { get => SLTPInPips / 2; }
 
-        private struct SLTP {
-            public double SL;
-            public double TP;
-            public string comment;
-        }
-
-        private struct SRMetrics {
-            public int UptrendCounter = 0;
-            public int DowntrendCounter = 0;
-            public int NeutralCounter = 0;
-            public SRMetrics() { }
-            public override string ToString() {
-                int max = Math.Max(Math.Max(UptrendCounter, DowntrendCounter), NeutralCounter);
-
-                if (UptrendCounter > DowntrendCounter) return "BUY";
-                if (DowntrendCounter > UptrendCounter) return "SELL";
-
-                return "NEUTRAL";
-
-                return " [" + UptrendCounter +
-                       " - " + DowntrendCounter +
-                       " - " + NeutralCounter + "]";
-            }
-        }
-
         public MetricTracker MetricTracker;
-        public Webhook Webhook;
         public PositionTracker PositionTracker;
+        public SetupAnalyser SetupAnalyser;
+        public Webhook Webhook;
 
         private double DailySetupsTaken = 0;
         private DateTime LastTradeClose { get; set; }
@@ -106,6 +82,7 @@ namespace cAlgo.Robots {
 
             MetricTracker = new(this);
             PositionTracker = new(this);
+            SetupAnalyser = new(this);
             Webhook = new(WebhookActivated);
 
             MetricTracker.TotalDrawdownActivated = PropFirmVersion;
@@ -113,7 +90,7 @@ namespace cAlgo.Robots {
 
             ADX = Indicators.AverageDirectionalMovementIndexRating(ADXPeriod).ADX;
             EMA = Indicators.ExponentialMovingAverage(Bars.ClosePrices, EMAPeriod).Result;
-            SR = Indicators.GetIndicator<SupportResistance>(15);
+            SR = Indicators.GetIndicator<SupportResistance>(15, 100);
             Log("Started");
         }
         public void Terminate(string TerminationReason) {
@@ -194,10 +171,9 @@ namespace cAlgo.Robots {
                 
                 TradeType direction = diff > 0 ? TradeType.Buy : TradeType.Sell; 
                 
-                SR.AnalyzeHistoricalData(1000);
-                Comment += SetupAnalyser.CalculateSLTP(SR, Symbol.PipSize);
-                
-                
+                SR.AnalyzeHistoricalData(Bars.Count - 1);
+                SLTP sltp = SetupAnalyser.AnalyseTrade(direction, SR, Symbol.PipSize, direction == TradeType.Buy ? Ask : Bid);
+                Comment += sltp.comment;
                 double RiskAmount = MetricTracker.CanTradeLossAmount / SetupsPerDay;
                 if (MetricTracker.ReducedRiskActive) RiskAmount *= MetricTracker.ReducedRiskMultipler;
                 
@@ -210,7 +186,7 @@ namespace cAlgo.Robots {
 
                 while (Volume > 0) {
                     double OrderVolume = Math.Min(Volume, Symbol.VolumeInUnitsMax);
-                    ExecuteMarketOrder(direction, SymbolName, OrderVolume, null, 1000, 1000, Comment);
+                    ExecuteMarketOrder(direction, SymbolName, OrderVolume, null, 1000, sltp.TP, Comment);
                     Volume -= OrderVolume;
                 }
                 
