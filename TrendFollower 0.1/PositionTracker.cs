@@ -2,12 +2,8 @@
 using cAlgo.API.Internals;
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
-namespace cAlgo.Robots
-{
+namespace cAlgo.Robots {
     public class PositionTracker {
         private readonly TrendFollower bot;
 
@@ -19,12 +15,12 @@ namespace cAlgo.Robots
 
         private void Log(object msg) { if (this.bot.Debug) this.bot.Print(msg?.ToString()); }
 
-        private double TrailStopPips = 1000;
+        private double TrailStopPips = 500;
         public struct PositionManager {
             public Position Position;
             public bool ReachedProfitThreshold = false;
             public bool ClosedHalf = false;
-            public double MaxDrawdown = 0;
+            public double MaxDrawdown = double.PositiveInfinity;
             public PositionManager(Position p, bool R, bool C) {
                 Position = p;
                 ReachedProfitThreshold = R;
@@ -55,31 +51,11 @@ namespace cAlgo.Robots
                 }
                 // if we got into drawdown without seeing profit close early
                 else if (!P.ReachedProfitThreshold && ProfitPips <= -this.bot.SLTPInPipsHalf) {
-                    this.bot.ClosePositionAsync(pos);
-                } 
+                    //this.bot.ClosePositionAsync(pos);
 
-                if (P.ReachedProfitThreshold) {
-                    if (pos.TradeType == TradeType.Buy) {
-                        if ((Symbol.Bid - pos.EntryPrice) / Symbol.PipSize > TrailStopPips) {
-                            double StopLossPips = Symbol.Bid - (double)pos.StopLoss / Symbol.PipSize;
-                            if (StopLossPips > TrailStopPips) {
-                                Log("Trailed stop " + pos.NetProfit);
-                                pos.ModifyStopLossPrice((Symbol.Bid - (TrailStopPips * Symbol.PipSize)));
-                            }
-                        }
-                    } else {
-                        if ((pos.EntryPrice - Symbol.Ask) / Symbol.PipSize > TrailStopPips) {
-                            double StopLossPips = ((double)pos.StopLoss - Symbol.Ask) / Symbol.PipSize;
-                            if (StopLossPips > TrailStopPips) {
-                                Log("Trailed stop " + pos.NetProfit);
-                                pos.ModifyStopLossPrice((Symbol.Ask + (TrailStopPips * Symbol.PipSize)));
-                            }
-                        }
-                    }
                 }
 
-
-                P.MaxDrawdown = Math.Min(P.MaxDrawdown, pos.NetProfit);
+                P.MaxDrawdown = Math.Min(P.MaxDrawdown, pos.Pips);
 
                 LocalPositions[pos.Id] = P;
             });
@@ -107,3 +83,27 @@ namespace cAlgo.Robots
         }
     }
 }
+
+
+/*
+ * Trailstop
+ *                 if (P.ReachedProfitThreshold) {
+                    if (pos.TradeType == TradeType.Buy) {
+                        if ((Symbol.Bid - pos.EntryPrice) / Symbol.PipSize > TrailStopPips) {
+                            double StopLossPips = Symbol.Bid - (double)pos.StopLoss / Symbol.PipSize;
+                            if (StopLossPips > TrailStopPips) {
+                                Log("Trailed stop " + pos.NetProfit);
+                                pos.ModifyStopLossPrice((Symbol.Bid - (TrailStopPips * Symbol.PipSize)));
+                            }
+                        }
+                    } else {
+                        if ((pos.EntryPrice - Symbol.Ask) / Symbol.PipSize > TrailStopPips) {
+                            double StopLossPips = ((double)pos.StopLoss - Symbol.Ask) / Symbol.PipSize;
+                            if (StopLossPips > TrailStopPips) {
+                                Log("Trailed stop " + pos.NetProfit);
+                                pos.ModifyStopLossPrice((Symbol.Ask + (TrailStopPips * Symbol.PipSize)));
+                            }
+                        }
+                    }
+                }
+*/

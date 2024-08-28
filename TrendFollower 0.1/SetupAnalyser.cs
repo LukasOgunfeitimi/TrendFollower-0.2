@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
-using System.Xml.Linq;
 using cAlgo.API;
 public struct SLTP {
     public double SL;
@@ -14,20 +12,27 @@ public struct SRMetrics {
     public int DowntrendCounter = 0;
     public int NeutralCounter = 0;
     public SRMetrics() { }
-    public override string ToString() {
+    public string ToString(TradeType dir) {
         int max = Math.Max(Math.Max(UptrendCounter, DowntrendCounter), NeutralCounter);
 
-        //return max == UptrendCounter ? "BUY" : (max == DowntrendCounter ? "SELL" : "NEUTRAL");
+        string trend = max == UptrendCounter ? "BUY" : (max == DowntrendCounter ? "SELL" : "NEUTRAL");
 
+        if (trend == "BUY" && dir == TradeType.Buy) return "MATCH";
+        else if (trend == "BUY" && dir == TradeType.Sell) return "MISMATCH";
 
+        if (trend == "SELL" && dir == TradeType.Sell) return "MATCH";
+        else if (trend == "SELL" && dir == TradeType.Buy) return "MISMATCH";
+
+        return "NEUTRAL";
+
+        return " [" + UptrendCounter +
+" - " + DowntrendCounter +
+" - " + NeutralCounter + "]";
         if (UptrendCounter > DowntrendCounter) return "BUY";
         if (UptrendCounter < DowntrendCounter) return "SELL";
 
         return "NEUTRAL";
 
-        return " [" + UptrendCounter +
-               " - " + DowntrendCounter +
-               " - " + NeutralCounter + "]";
     }
 }
 namespace cAlgo.Robots {
@@ -56,11 +61,9 @@ namespace cAlgo.Robots {
              * Identify Trend
              */
             int latestIndex = Bars.Count - 1;
-            int lookback = Math.Min(latestIndex - 1, 500);
+            int lookback = Math.Min(latestIndex - 1, 100);
 
             for (int i = latestIndex; i > (latestIndex - lookback); i--) {
-                double diff = Math.Round(SR.LevelsMA[i] - SR.LevelsMA[i - 1], 2);
-
                 int Trend = GetMATrend(SR.LevelsMA[i], i, SR);
 
                 if (Trend == 0) MAs.UptrendCounter++;
@@ -68,12 +71,11 @@ namespace cAlgo.Robots {
                 else if (Trend == 2) MAs.NeutralCounter++;
             }
 
-            sltp.comment = MAs.ToString();
+
+            //sltp.comment = MAs.ToString(direction);
 
 
-            /*
-             * Calculate TP
-             */
+
             List<SupportResistance.Level> PreviousHighs = SR.PreviousHighLevels;
             List<SupportResistance.Level> PreviousLows = SR.PreviousLowLevels;
 
@@ -86,35 +88,36 @@ namespace cAlgo.Robots {
             : double.NaN;
 
             DateTime LookbackTime = bot.Server.Time.AddDays(-5);
-
-            double MaxTPPipSize = 500 / PipSize;
             sltp.TP = 1000;
-            sltp.comment += " needs normal tp";
+            sltp.SL = 300;
+            /*
+             * Calculate TP
+           */
+            string comment = "in range";
+            int counter = 0;
             if (direction == TradeType.Buy) {
                 foreach (var High in SR.PreviousHighs) {
-                    //if (High.OpenTime < LookbackTime) break;
-                    //Log(High.High + " " + EntryPrice);
-                    // In range
+                    if (counter++ > 3) break;
+
                     double DifferenceInPips = (High.High - EntryPrice) / PipSize;
-                    if (DifferenceInPips > 1000 && DifferenceInPips < MaxTPPipSize) {
-                        sltp.comment += " TP: " + High.High;
-                        sltp.TP = High.High;
+                    if (-DifferenceInPips > 500) {
+                        comment = " above range TP: " + High.High;
                         break;
                     }
                 }
             } else {
                 foreach (var Low in SR.PreviousLows) {
+                    if (counter++ > 3) break;
+
                     double DifferenceInPips = (EntryPrice - Low.Low) / PipSize;
-                    if (DifferenceInPips > 100 && DifferenceInPips < MaxTPPipSize) {
-                        sltp.comment += " TP:" + Low.Low;
-                        sltp.TP = Low.Low;
+                    if (-DifferenceInPips > 500)
+                        comment = " above range TP: " + Low.Low;
                         break;
-                    }
-                }
+                } 
             }
+            sltp.comment = comment;
 
             return sltp;
-
 
         }
     }
@@ -180,6 +183,52 @@ namespace cAlgo.Robots {
                 if (LowestLevel != double.NaN) {
                     if (Bid < LowestLevel) Comment += "outside of range";
                     else Comment += " in the range";
+                }
+            }
+
+
+
+
+
+
+
+            //bot.Chart.RemoveAllObjects(); 
+            if (direction == TradeType.Buy) {
+                bool TPFound = false;
+                bool SLFound = false;
+                foreach (var High in SR.PreviousHighs) {
+                    double DifferenceInPips = (High.High - EntryPrice) / PipSize;
+                    if (DifferenceInPips > 500 && DifferenceInPips <= 1000 && !TPFound) {
+                        TPFound = true;
+                        sltp.comment += " TP: " + High.High;
+                        bot.Chart.DrawHorizontalLine(sltp.comment, High.High, Color.Green);
+                        sltp.TP = DifferenceInPips;
+                        break;
+                    } else if (DifferenceInPips < -500 && DifferenceInPips >= -1000 && !SLFound) {
+                        SLFound = true;
+                        sltp.comment += " SL: " + High.High;
+                        bot.Chart.DrawHorizontalLine(sltp.comment, High.High, Color.Red);
+                        sltp.SL = DifferenceInPips;
+                        break;
+                    }
+                }
+            } else {
+                bool TPFound = false;
+                bool SLFound = false;
+                foreach (var Low in SR.PreviousLows) {
+                    double DifferenceInPips = (EntryPrice - Low.Low) / PipSize;
+                    if (DifferenceInPips > 500 && DifferenceInPips <= 1000 && !TPFound) {
+                        TPFound = true;
+                        sltp.comment += " TP: " + Low.Low;
+                        bot.Chart.DrawHorizontalLine(sltp.comment, Low.Low, Color.Green);
+                        sltp.TP = DifferenceInPips;
+                        break;
+                    } else if (DifferenceInPips < -500 && DifferenceInPips >= -1000 && !SLFound) {
+                        SLFound = true;
+                        sltp.comment += " SL: " + Low.Low;
+                        bot.Chart.DrawHorizontalLine(sltp.comment, Low.Low, Color.Red);
+                        sltp.SL = Math.Abs(DifferenceInPips);
+                    }
                 }
             }
             */

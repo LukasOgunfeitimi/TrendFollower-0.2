@@ -11,7 +11,7 @@ namespace cAlgo.Robots {
     /*
         Name: TrendFollower
         Author: Lukas Ogunfeitimi
-        Description: Uses ADX and EMA to look gfor trade
+        Description: Uses ADX and EMA to look for trade
     */
     [Robot(AccessRights = AccessRights.FullAccess, AddIndicators = true)]
     public class TrendFollower : Robot {
@@ -73,7 +73,7 @@ namespace cAlgo.Robots {
         public void AllPositions(Action<Position> c) { foreach (var pos in Positions) if (pos.Comment != null && pos.Comment.Contains("algo")) c(pos); }
 
         protected override void OnStart() {
-            //var result = System.Diagnostics.Debugger.Launch();
+            //System.Diagnostics.Debugger.Launch();
 
             LastTradeClose = DateTime.MinValue;
             Positions.Closed += OnPositionClosed;
@@ -138,6 +138,7 @@ namespace cAlgo.Robots {
             
             double PosMaxDrawdown = PositionTracker.LocalPositions[pos.Id].MaxDrawdown;
 
+            Log("net profit: " + pos.NetProfit + " max drawdown: " + PosMaxDrawdown);
             Webhook.SendWebhookMessage(pos.Id + " closed with " + pos.NetProfit + " max drawdown " + PosMaxDrawdown);
             
             PositionTracker.LocalPositions.Remove(pos.Id);
@@ -157,13 +158,14 @@ namespace cAlgo.Robots {
             }
             
             double diff = Bars[latestIndex].Close - EMA[latestIndex];
-            
+
             if (
-                ADX[latestIndex] >= ADXThreshold && 
-                Math.Abs(diff) > EMAThreshold    && 
-                DailySetupsTaken < SetupsPerDay  &&
+                ADX[latestIndex] >= ADXThreshold &&
+                Math.Abs(diff) > EMAThreshold &&
+                DailySetupsTaken < SetupsPerDay &&
                 Positions.Where(pos => pos.Comment.Contains("algo")).Count() == 0 &&
                 (Bars[latestIndex].OpenTime - LastTradeClose).TotalMinutes > 60
+                //Server.Time >= new DateTime(2024, 4, 15)
                ) {                
                 string Comment = "algo";
                 
@@ -172,12 +174,14 @@ namespace cAlgo.Robots {
                 TradeType direction = diff > 0 ? TradeType.Buy : TradeType.Sell; 
                 
                 SR.AnalyzeHistoricalData(Bars.Count - 1);
+
                 SLTP sltp = SetupAnalyser.AnalyseTrade(direction, SR, Symbol.PipSize, direction == TradeType.Buy ? Ask : Bid);
                 Comment += sltp.comment;
+
                 double RiskAmount = MetricTracker.CanTradeLossAmount / SetupsPerDay;
                 if (MetricTracker.ReducedRiskActive) RiskAmount *= MetricTracker.ReducedRiskMultipler;
-                
-                double Volume = Symbol.VolumeForFixedRisk(RiskAmount, 1000);
+
+                double Volume = Symbol.VolumeForFixedRisk(RiskAmount, sltp.SL);
 
                 //double Volume = RiskAmount / (SLTPInPips * Symbol.PipSize);
                 
@@ -186,7 +190,7 @@ namespace cAlgo.Robots {
 
                 while (Volume > 0) {
                     double OrderVolume = Math.Min(Volume, Symbol.VolumeInUnitsMax);
-                    ExecuteMarketOrder(direction, SymbolName, OrderVolume, null, 1000, sltp.TP, Comment);
+                    ExecuteMarketOrder(direction, SymbolName, OrderVolume, null, sltp.SL, sltp.TP, Comment);
                     Volume -= OrderVolume;
                 }
                 
